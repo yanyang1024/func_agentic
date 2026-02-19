@@ -26,12 +26,22 @@ async def workflow_callback(session_id: str, result: Dict[str, Any]):
         return
 
     # 根据状态添加消息
-    if result["status"] == WorkflowStatus.INTERRUPT:
+    if result["status"] == WorkflowStatus.PROCESSING:
+        # 处理中状态 - 显示进度信息
+
+        session.waiting_for_input = False
+        progress_info = result.get("progress_info", {})
+        message = f"正在处理: {progress_info.get('current_node', '未知步骤')} ({progress_info.get('percentage', 0)}%)"
+        session.add_message("assistant", message)
+
+    elif result["status"] == WorkflowStatus.INTERRUPT:
         session.waiting_for_input = True
         session.add_message("assistant", result["message"])
+
     elif result["status"] == WorkflowStatus.SUCCESS:
         session.waiting_for_input = False
         session.add_message("assistant", result["message"], result.get("visualization_url"))
+
     elif result["status"] == WorkflowStatus.FAIL:
         session.waiting_for_input = False
         session.add_message("assistant", result["message"])
@@ -182,6 +192,106 @@ def refresh_status():
         'waiting_for_input': session.waiting_for_input,
         'current_run_id': session.current_run_id
     })
+
+
+@app.route('/api/workflow/<run_id>/status', methods=['GET'])
+def get_workflow_status(run_id: str):
+    """
+    轮询工作流状态（返回动态提示）
+
+    Args:
+        run_id: 工作流运行 ID
+
+    Returns:
+        工作流状态信息
+    """
+    try:
+        workflow_info = workflow_service.get_workflow_info(run_id)
+
+        # 转换状态为字符串
+        status = workflow_info.get("status", "unknown")
+        if isinstance(status, WorkflowStatus):
+            status = status.value
+
+        response = {
+            'success': True,
+            'run_id': run_id,
+            'status': status,
+            'message': workflow_info.get('message', '')
+        }
+
+        # 根据状态添加额外信息
+        if status == WorkflowStatus.PROCESSING.value:
+            progress_info = workflow_info.get('progress_info', {})
+            response['progress_info'] = progress_info
+            response['current_node'] = progress_info.get('current_node', '未知')
+            response['percentage'] = progress_info.get('percentage', 0)
+            response['total_steps'] = progress_info.get('total_steps', 0)
+
+        elif status == WorkflowStatus.INTERRUPT.value:
+            response['interrupt_info'] = workflow_info.get('interrupt_info', {})
+            response['question'] = workflow_info.get('message', '')
+
+        elif status == WorkflowStatus.SUCCESS.value:
+            response['visualization_url'] = workflow_info.get('visualization_url')
+
+        return jsonify(response)
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/workflow/<run_id>/resume', methods=['POST'])
+def resume_workflow(run_id: str):
+    """
+    恢复中断的工作流
+
+    Args:
+        run_id: 工作流运行 ID
+
+    Returns:
+        新的工作流运行 ID
+    """
+    data = request.get_json()
+    user_input = data.get('input', '').strip()
+
+    if not user_input:
+        return jsonify({
+            'success': False,
+            'error': '输入不能为空'
+        }), 400
+
+    try:
+        new_run_id = workflow_service.restart_workflow(user_input, run_id)
+
+        # 获取当前会话并更新
+        sessions = session_manager.get_all_sessions()
+        if sessions:
+            session = sessions[-1]
+            session.current_run_id = new_run_id
+            session.waiting_for_input = False
+
+            # 提交异步任务
+            async_processor.submit_task(
+                session_id=session.session_id,
+                run_id=new_run_id,
+                status_callback=workflow_callback
+            )
+
+        return jsonify({
+            'success': True,
+            'new_run_id': new_run_id,
+            'message': '工作流已恢复'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 @app.route('/api/clear', methods=['POST'])

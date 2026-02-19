@@ -12,7 +12,7 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
@@ -107,6 +107,62 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
+        .message-processing {
+            background: white;
+            margin-right: auto;
+            max-width: 70%;
+            padding: 16px 20px;
+            border-radius: 18px 18px 18px 4px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .processing-spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .processing-text {
+            flex: 1;
+        }
+
+        .processing-current-step {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 4px;
+        }
+
+        .processing-progress {
+            font-size: 13px;
+            color: #999;
+        }
+
+        .processing-progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .processing-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+        }
+
         .message-input {
             padding: 20px;
             background: white;
@@ -133,6 +189,11 @@
             border-color: #667eea;
         }
 
+        #messageInput:disabled {
+            background: #f5f5f5;
+            cursor: not-allowed;
+        }
+
         .btn {
             padding: 12px 24px;
             border: none;
@@ -144,13 +205,20 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100.0);
             color: white;
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .btn-secondary {
@@ -207,6 +275,17 @@
         }
 
         .status-processing {
+            background: #2196f3;
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .status-waiting {
             background: #ff9800;
             color: white;
         }
@@ -232,22 +311,6 @@
             background: #bbdefb;
         }
 
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-left: 10px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
         .welcome-message {
             text-align: center;
             color: #999;
@@ -258,17 +321,78 @@
             font-size: 64px;
             margin-bottom: 16px;
         }
+
+        .workflow-progress {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 12px;
+        }
+
+        .workflow-progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .workflow-progress-title {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .workflow-progress-percent {
+            font-size: 18px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .workflow-progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .workflow-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.5s ease;
+        }
+
+        .workflow-steps {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .workflow-step {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .workflow-step.active {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .workflow-step.completed {
+            color: #4caf50;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 智能对话工作流系统</h1>
+            <h1>智能对话工作流系统</h1>
             <p>支持异步工作流处理的智能对话系统</p>
         </div>
 
         <div class="main-content">
-            <!-- 左侧：对话区 -->
             <div class="chat-section">
                 <div class="chat-messages" id="chatMessages">
                     <div class="welcome-message">
@@ -280,34 +404,52 @@
                 <div class="message-input">
                     <div class="input-group">
                         <input type="text" id="messageInput" placeholder="输入您的问题..." autocomplete="off">
-                        <button class="btn btn-primary" onclick="sendMessage()">发送</button>
+                        <button class="btn btn-primary" id="sendBtn" onclick="sendMessage()">发送</button>
                     </div>
                     <div class="btn-group">
                         <button class="btn btn-secondary" onclick="clearChat()">清空对话</button>
-                        <button class="btn btn-secondary" onclick="newSession()">新建会话</button>
-                        <button class="btn btn-secondary" onclick="refreshStatus()">🔄 刷新状态</button>
+                        <button class="btn btn-secondary" onclick="newSession()">New Session</button>
+                        <button class="btn btn-secondary" onclick="refreshStatus()">Refresh Status</button>
                     </div>
                 </div>
             </div>
 
-            <!-- 右侧：信息面板 -->
             <div class="info-panel">
                 <div class="info-card">
-                    <h3>📊 参考信息</h3>
-                    <div id="referenceInfo">暂无参考信息</div>
+                    <h3>Reference Info</h3>
+                    <div id="referenceInfo">No reference info</div>
                 </div>
 
                 <div class="info-card">
-                    <h3>📋 会话信息</h3>
-                    <p><strong>会话ID:</strong> <span id="sessionId">加载中...</span></p>
-                    <p><strong>消息数:</strong> <span id="messageCount">0</span></p>
-                    <p><strong>状态:</strong> <span id="sessionStatus" class="status-badge status-ready">就绪</span></p>
+                    <h3>Session Info</h3>
+                    <p><strong>Session ID:</strong> <span id="sessionId">Loading...</span></p>
+                    <p><strong>Message Count:</strong> <span id="messageCount">0</span></p>
+                    <p><strong>Status:</strong> <span id="sessionStatus" class="status-badge status-ready">Ready</span></p>
                 </div>
 
                 <div class="info-card">
-                    <h3>⚙️ 工作流状态</h3>
-                    <p><strong>RunID:</strong> <span id="runId">未启动</span></p>
-                    <p><strong>状态:</strong> <span id="workflowStatus">未启动</span></p>
+                    <h3>Workflow Status</h3>
+                    <p><strong>RunID:</strong> <span id="runId">Not Started</span></p>
+                    <p><strong>Status:</strong> <span id="workflowStatus">Not Started</span></p>
+                </div>
+
+                <div class="info-card" id="workflowProgressCard" style="display: none;">
+                    <div class="workflow-progress">
+                        <div class="workflow-progress-header">
+                            <span class="workflow-progress-title">Workflow Progress</span>
+                            <span class="workflow-progress-percent" id="workflowProgressPercent">0%</span>
+                        </div>
+                        <div class="workflow-progress-bar">
+                            <div class="workflow-progress-fill" id="workflowProgressFill" style="width: 0%;"></div>
+                        </div>
+                        <div class="workflow-steps" id="workflowSteps">
+                            <span class="workflow-step">Data Loading</span>
+                            <span class="workflow-step">Preprocessing</span>
+                            <span class="workflow-step">Feature Extraction</span>
+                            <span class="workflow-step">Model Inference</span>
+                            <span class="workflow-step">Result Generation</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -315,21 +457,22 @@
 
     <script>
         let currentSessionId = null;
+        let currentRunId = null;
+        let pollingInterval = null;
+        let isProcessing = false;
 
-        // 页面加载时初始化
         window.onload = function() {
             initSession();
-            document.getElementById('messageInput').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
+            document.getElementById("messageInput").addEventListener("keypress", function(e) {
+                if (e.key === "Enter") {
                     sendMessage();
                 }
             });
         };
 
-        // 初始化会话
         async function initSession() {
             try {
-                const response = await fetch('/api/session');
+                const response = await fetch("/api/session");
                 const data = await response.json();
 
                 if (data.success) {
@@ -338,14 +481,13 @@
                     await loadMessages();
                 }
             } catch (error) {
-                console.error('初始化会话失败:', error);
+                console.error("Init session failed:", error);
             }
         }
 
-        // 加载消息
         async function loadMessages() {
             try {
-                const response = await fetch('/api/messages');
+                const response = await fetch("/api/messages");
                 const data = await response.json();
 
                 if (data.success && data.messages.length > 0) {
@@ -353,29 +495,26 @@
                     updateMessageCount(data.messages.length);
                 }
             } catch (error) {
-                console.error('加载消息失败:', error);
+                console.error("Load messages failed:", error);
             }
         }
 
-        // 发送消息
         async function sendMessage() {
-            const input = document.getElementById('messageInput');
+            const input = document.getElementById("messageInput");
             const message = input.value.trim();
 
-            if (!message) return;
+            if (!message || isProcessing) return;
 
-            // 清空输入框
-            input.value = '';
+            input.value = "";
 
-            // 显示用户消息
-            addMessageToUI('user', message);
+            addMessageToUI("user", message);
+            setProcessingState(true);
 
-            // 发送到服务器
             try {
-                const response = await fetch('/api/send', {
-                    method: 'POST',
+                const response = await fetch("/api/send", {
+                    method: "POST",
                     headers: {
-                        'Content-Type': 'application/json'
+                        "Content-Type": "application/json"
                     },
                     body: JSON.stringify({ message: message })
                 });
@@ -383,177 +522,352 @@
                 const data = await response.json();
 
                 if (data.success) {
+                    currentRunId = data.run_id;
                     updateRunId(data.run_id);
-                    updateWorkflowStatus('处理中...');
-
-                    // 2秒后自动刷新
-                    setTimeout(() => {
-                        refreshStatus();
-                    }, 2500);
+                    updateWorkflowStatus("processing", "Processing...");
+                    startWorkflowPolling(data.run_id);
                 } else {
-                    addMessageToUI('assistant', '发送失败: ' + data.error);
+                    setProcessingState(false);
+                    addMessageToUI("assistant", "Send failed: " + data.error);
                 }
             } catch (error) {
-                console.error('发送消息失败:', error);
-                addMessageToUI('assistant', '网络错误，请重试');
+                console.error("Send message failed:", error);
+                setProcessingState(false);
+                addMessageToUI("assistant", "Network error, please try again");
             }
         }
 
-        // 刷新状态
-        async function refreshStatus() {
+        function startWorkflowPolling(runId) {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+
+            addProcessingMessage();
+            pollWorkflowStatus(runId);
+
+            pollingInterval = setInterval(function() {
+                pollWorkflowStatus(runId);
+            }, 2000);
+        }
+
+        async function pollWorkflowStatus(runId) {
             try {
-                const response = await fetch('/api/refresh', {
-                    method: 'POST'
-                });
+                const response = await fetch("/api/workflow/" + runId + "/status");
                 const data = await response.json();
 
-                if (data.success) {
-                    // 重新加载消息
-                    displayMessages(data.messages);
+                if (!data) {
+                    return;
+                }
 
-                    // 更新参考信息
-                    if (data.reference_info) {
-                        updateReferenceInfo(data.reference_info);
+                if (data.status === "processing") {
+                    updateProcessingUI(data);
+                    updateWorkflowProgress(data);
+                } else if (data.status === "interrupt") {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    removeProcessingMessage();
+                    addMessageToUI("assistant", data.message);
+                    updateWorkflowStatus("waiting", "Waiting for more info");
+                    setProcessingState(false);
+                } else if (data.status === "success") {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    removeProcessingMessage();
+                    addMessageToUI("assistant", data.message, data.visualization_url);
+                    updateWorkflowStatus("success", "Completed");
+                    updateReferenceInfo(data.visualization_url);
+                    setProcessingState(false);
+                } else if (data.status === "fail") {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    removeProcessingMessage();
+                    addMessageToUI("assistant", data.message);
+                    updateWorkflowStatus("fail", "Failed");
+                    setProcessingState(false);
+                }
+
+            } catch (error) {
+                console.error("Poll workflow status failed:", error);
+            }
+        }
+
+        function updateProcessingUI(data) {
+            const processingMessage = document.getElementById("currentProcessingMessage");
+            if (processingMessage && data.progress_info) {
+                const currentStep = document.getElementById("processingCurrentStep");
+                const progressBar = document.getElementById("processingProgressBar");
+
+                if (currentStep) {
+                    currentStep.textContent = data.progress_info.current_node || "Processing...";
+                }
+
+                if (progressBar) {
+                    const fill = progressBar.querySelector(".processing-progress-fill");
+                    if (fill) {
+                        fill.style.width = data.progress_info.percentage + "%";
                     }
+                }
 
-                    // 更新会话信息
-                    updateMessageCount(data.messages.length);
-                    updateSessionStatus(data.waiting_for_input);
-                    updateRunId(data.current_run_id || '未启动');
+                const progressText = document.getElementById("processingProgressText");
+                if (progressText) {
+                    progressText.textContent = "Step " + (data.progress_info.current_step + 1) + "/" + data.progress_info.total_steps;
+                }
+            }
+        }
 
-                    if (!data.current_run_id) {
-                        updateWorkflowStatus('未启动');
+        function updateWorkflowProgress(data) {
+            const card = document.getElementById("workflowProgressCard");
+            if (!card) return;
+
+            if (data.status === "processing" && data.progress_info) {
+                card.style.display = "block";
+                document.getElementById("workflowProgressPercent").textContent = data.progress_info.percentage + "%";
+                document.getElementById("workflowProgressFill").style.width = data.progress_info.percentage + "%";
+
+                const steps = document.getElementById("workflowSteps");
+                const stepElements = steps.querySelectorAll(".workflow-step");
+
+                data.progress_info.nodes.forEach(function(node, index) {
+                    if (stepElements[index]) {
+                        stepElements[index].textContent = node;
+
+                        if (index < data.progress_info.current_step) {
+                            stepElements[index].className = "workflow-step completed";
+                        } else if (index === data.progress_info.current_step) {
+                            stepElements[index].className = "workflow-step active";
+                        } else {
+                            stepElements[index].className = "workflow-step";
+                        }
                     }
-                }
-            } catch (error) {
-                console.error('刷新状态失败:', error);
-            }
-        }
-
-        // 清空对话
-        async function clearChat() {
-            if (!confirm('确定要清空对话吗？')) return;
-
-            try {
-                const response = await fetch('/api/clear', {
-                    method: 'POST'
                 });
-                const data = await response.json();
-
-                if (data.success) {
-                    currentSessionId = data.session_id;
-                    document.getElementById('chatMessages').innerHTML = `
-                        <div class="welcome-message">
-                            <div class="icon">💬</div>
-                            <p>新会话已创建</p>
-                        </div>
-                    `;
-                    updateSessionInfo(data.session_id);
-                    updateMessageCount(0);
-                    updateReferenceInfo(null);
-                    updateRunId('未启动');
-                    updateWorkflowStatus('未启动');
-                }
-            } catch (error) {
-                console.error('清空对话失败:', error);
+            } else {
+                card.style.display = "none";
             }
         }
 
-        // 新建会话
-        async function newSession() {
-            try {
-                const response = await fetch('/api/session', {
-                    method: 'POST'
-                });
-                const data = await response.json();
-
-                if (data.success) {
-                    currentSessionId = data.session_id;
-                    updateSessionInfo(data.session_id);
-                    addMessageToUI('assistant', '👋 您好！我是智能助手，请告诉我您需要什么帮助？');
-                    updateMessageCount(1);
-                }
-            } catch (error) {
-                console.error('创建会话失败:', error);
+        function addProcessingMessage() {
+            if (document.getElementById("currentProcessingMessage")) {
+                return;
             }
-        }
 
-        // 显示消息列表
-        function displayMessages(messages) {
-            const chatMessages = document.getElementById('chatMessages');
-            chatMessages.innerHTML = '';
-
-            messages.forEach(msg => {
-                addMessageToUI(msg.role, msg.content);
-            });
-
-            // 滚动到底部
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        // 添加单条消息到UI
-        function addMessageToUI(role, content) {
-            const chatMessages = document.getElementById('chatMessages');
-
-            // 移除欢迎消息
-            const welcomeMsg = chatMessages.querySelector('.welcome-message');
+            const chatMessages = document.getElementById("chatMessages");
+            const welcomeMsg = chatMessages.querySelector(".welcome-message");
             if (welcomeMsg) {
                 welcomeMsg.remove();
             }
 
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${role}`;
-            messageDiv.innerHTML = `<div class="message-content">${escapeHtml(content)}</div>`;
+            const messageDiv = document.createElement("div");
+            messageDiv.id = "currentProcessingMessage";
+            messageDiv.className = "message-processing";
+            messageDiv.innerHTML = 
+                '<div class="processing-spinner"></div>' +
+                '<div class="processing-text">' +
+                    '<div class="processing-current-step" id="processingCurrentStep">Processing...</div>' +
+                    '<div class="processing-progress" id="processingProgressText">Step 1/5</div>' +
+                    '<div class="processing-progress-bar" id="processingProgressBar">' +
+                        '<div class="processing-progress-fill" style="width: 0%;"></div>' +
+                    '</div>' +
+                '</div>';
 
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        // 更新会话信息
+        function removeProcessingMessage() {
+            const processingMessage = document.getElementById("currentProcessingMessage");
+            if (processingMessage) {
+                processingMessage.remove();
+            }
+        }
+
+        function setProcessingState(processing) {
+            isProcessing = processing;
+            const sendBtn = document.getElementById("sendBtn");
+            const messageInput = document.getElementById("messageInput");
+
+            if (sendBtn) {
+                sendBtn.disabled = processing;
+                sendBtn.textContent = processing ? "Processing..." : "Send";
+            }
+
+            if (messageInput) {
+                messageInput.disabled = processing;
+            }
+        }
+
+        async function refreshStatus() {
+            try {
+                const response = await fetch("/api/refresh", {
+                    method: "POST"
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    displayMessages(data.messages);
+
+                    if (data.reference_info) {
+                        updateReferenceInfo(data.reference_info);
+                    }
+
+                    updateMessageCount(data.messages.length);
+                    updateSessionStatus(data.waiting_for_input);
+                    updateRunId(data.current_run_id || "Not Started");
+
+                    if (!data.current_run_id) {
+                        updateWorkflowStatus("none", "Not Started");
+                        hideWorkflowProgress();
+                    }
+                }
+            } catch (error) {
+                console.error("Refresh status failed:", error);
+            }
+        }
+
+        function hideWorkflowProgress() {
+            const card = document.getElementById("workflowProgressCard");
+            if (card) {
+                card.style.display = "none";
+            }
+        }
+
+        async function clearChat() {
+            if (!confirm("Are you sure to clear the conversation?")) return;
+
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+
+            setProcessingState(false);
+
+            try {
+                const response = await fetch("/api/clear", {
+                    method: "POST"
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    currentSessionId = data.session_id;
+                    document.getElementById("chatMessages").innerHTML = 
+                        '<div class="welcome-message">' +
+                            '<div class="icon">💬</div>' +
+                            '<p>New session created</p>' +
+                        '</div>';
+                    updateSessionInfo(data.session_id);
+                    updateMessageCount(0);
+                    updateReferenceInfo(null);
+                    updateRunId("Not Started");
+                    updateWorkflowStatus("none", "Not Started");
+                    hideWorkflowProgress();
+                }
+            } catch (error) {
+                console.error("Clear chat failed:", error);
+            }
+        }
+
+        async function newSession() {
+            try {
+                const response = await fetch("/api/session", {
+                    method: "POST"
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    currentSessionId = data.session_id;
+                    updateSessionInfo(data.session_id);
+                    addMessageToUI("assistant", "Hi! I am an intelligent assistant, please tell me what you need help with?");
+                    updateMessageCount(1);
+                }
+            } catch (error) {
+                console.error("Create session failed:", error);
+            }
+        }
+
+        function displayMessages(messages) {
+            const chatMessages = document.getElementById("chatMessages");
+            chatMessages.innerHTML = "";
+
+            messages.forEach(function(msg) {
+                addMessageToUI(msg.role, msg.content, msg.visualization_url);
+            });
+
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function addMessageToUI(role, content, visualizationUrl) {
+            const chatMessages = document.getElementById("chatMessages");
+
+            const welcomeMsg = chatMessages.querySelector(".welcome-message");
+            if (welcomeMsg) {
+                welcomeMsg.remove();
+            }
+
+            const messageDiv = document.createElement("div");
+            messageDiv.className = "message " + role;
+
+            let html = '<div class="message-content">' + escapeHtml(content) + '</div>';
+
+            if (visualizationUrl) {
+                html += '<a href="' + visualizationUrl + '" target="_blank" class="visualization-link">View Chart</a>';
+            }
+
+            messageDiv.innerHTML = html;
+
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
         function updateSessionInfo(sessionId) {
-            document.getElementById('sessionId').textContent = sessionId.substring(0, 20) + '...';
+            document.getElementById("sessionId").textContent = sessionId.substring(0, 20) + "...";
         }
 
-        // 更新消息数
         function updateMessageCount(count) {
-            document.getElementById('messageCount').textContent = count;
+            document.getElementById("messageCount").textContent = count;
         }
 
-        // 更新会话状态
         function updateSessionStatus(waiting) {
-            const statusElement = document.getElementById('sessionStatus');
+            const statusElement = document.getElementById("sessionStatus");
             if (waiting) {
-                statusElement.textContent = '等待补充信息';
-                statusElement.className = 'status-badge status-processing';
+                statusElement.textContent = "Waiting for more info";
+                statusElement.className = "status-badge status-waiting";
             } else {
-                statusElement.textContent = '就绪';
-                statusElement.className = 'status-badge status-ready';
+                statusElement.textContent = "Ready";
+                statusElement.className = "status-badge status-ready";
             }
         }
 
-        // 更新RunID
         function updateRunId(runId) {
-            document.getElementById('runId').textContent = runId ? runId.substring(0, 30) + '...' : '未启动';
+            document.getElementById("runId").textContent = runId ? runId.substring(0, 30) + "..." : "Not Started";
+            currentRunId = runId;
         }
 
-        // 更新工作流状态
-        function updateWorkflowStatus(status) {
-            document.getElementById('workflowStatus').textContent = status;
-        }
+        function updateWorkflowStatus(status, text) {
+            const statusElement = document.getElementById("workflowStatus");
+            statusElement.textContent = text;
 
-        // 更新参考信息
-        function updateReferenceInfo(url) {
-            const refInfo = document.getElementById('referenceInfo');
-            if (url) {
-                refInfo.innerHTML = `<a href="${url}" target="_blank" class="visualization-link">📊 查看可视化图表</a>`;
+            const sessionStatus = document.getElementById("sessionStatus");
+            if (status === "processing") {
+                sessionStatus.className = "status-badge status-processing";
+            } else if (status === "waiting") {
+                sessionStatus.className = "status-badge status-waiting";
+            } else if (status === "fail") {
+                sessionStatus.className = "status-badge status-error";
             } else {
-                refInfo.textContent = '暂无参考信息';
+                sessionStatus.className = "status-badge status-ready";
             }
         }
 
-        // HTML转义
+        function updateReferenceInfo(url) {
+            const refInfo = document.getElementById("referenceInfo");
+            if (url) {
+                refInfo.innerHTML = '<a href="' + url + '" target="_blank" class="visualization-link">View Chart</a>';
+            } else {
+                refInfo.textContent = "No reference info";
+            }
+        }
+
         function escapeHtml(text) {
-            const div = document.createElement('div');
+            const div = document.createElement("div");
             div.textContent = text;
             return div.innerHTML;
         }
