@@ -2,14 +2,120 @@
 
 本文档详细说明如何将实际的工作流服务集成到当前的Flask对话系统中。
 
+## 📢 重要更新（最新版本）
+
+系统已重构为使用**三个核心函数接口**，简化集成流程：
+
+1. ✅ `runworkflow(user_input)` - 启动工作流
+2. ✅ `getflowinfo(run_id)` - 查询工作流状态
+3. ✅ `resumeflow(user_input, run_id)` - 恢复中断的工作流（**run_id保持不变**）
+
+**关键修正：** 中断恢复逻辑已修复，现在使用 `resumeflow()` 函数保持原 run_id 不变，而不是创建新工作流。
+
 ## 目录
 
-1. [系统概述](#系统概述)
-2. [代码审查报告](#代码审查报告)
-3. [实际工作流服务集成步骤](#实际工作流服务集成步骤)
+1. [三个核心函数](#三个核心函数)
+2. [系统概述](#系统概述)
+3. [集成步骤](#集成步骤)
 4. [API接口规范](#api接口规范)
 5. [测试指南](#测试指南)
 6. [常见问题](#常见问题)
+
+---
+
+## 三个核心函数
+
+### 1. runworkflow(user_input: str) -> str
+
+启动新的工作流实例。
+
+**参数：**
+- `user_input`: 用户输入语句
+
+**返回：**
+- `run_id`: 工作流运行实例ID（25位数字字符串）
+
+**示例：**
+```python
+from workflow_adapter import runworkflow
+
+run_id = runworkflow("分析最近一个月的销售数据")
+# 返回: "0000000000000000000000001"
+```
+
+---
+
+### 2. getflowinfo(run_id: str) -> dict
+
+查询工作流状态和信息。
+
+**参数：**
+- `run_id`: 工作流运行ID
+
+**返回：**
+```python
+{
+    'runId': str,                    # 工作流ID
+    'status': str,                   # 状态: processing/interrupted/success/fail
+    'nodes': {                       # 节点信息
+        'node_id': {
+            'input': {...},          # 节点输入
+            'output': {...},         # 节点输出
+            'status': str,           # 节点状态: pending/processing/success/interrupted/fail
+            'costMs': int,           # 耗时（毫秒）
+            'nodeType': str          # 节点类型: start/flow/condition/end
+        }
+    },
+    'steps': [str],                  # 节点执行顺序
+    'costMs': int,                   # 总耗时
+    'output': Any,                   # 成功时的输出
+
+    # 以下是可选字段
+    'lastInterruptedNodeId': str,    # 中断节点ID（interrupted状态）
+    'checkpointExpireTimestamp': int, # 检查点过期时间（interrupted状态）
+    'msg': str,                      # 中断消息（interrupted状态）
+    'error': str                     # 错误信息（fail状态）
+}
+```
+
+**状态说明：**
+- `processing`: 工作流正在执行
+- `interrupted`: 工作流被中断，需要用户输入
+- `success`: 工作流成功完成
+- `fail`: 工作流执行失败
+
+**示例：**
+```python
+from workflow_adapter import getflowinfo
+
+info = getflowinfo("0000000000000000000000001")
+print(info['status'])  # 'processing'
+print(info['nodes'])   # 节点详情
+```
+
+---
+
+### 3. resumeflow(user_input: str, run_id: str) -> None
+
+恢复被中断的工作流。
+
+**参数：**
+- `user_input`: 用户针对中断信息的补充输入
+- `run_id`: 被中断的工作流运行ID（**保持不变**）
+
+**返回：**
+- None（无返回值）
+
+**⚠️ 重要：** 此函数不会创建新的 run_id，而是恢复原工作流！
+
+**示例：**
+```python
+from workflow_adapter import resumeflow
+
+# 工作流被中断，用户提供补充信息
+resumeflow("按产品分析近30天的数据", "0000000000000000000000001")
+# 工作流继续执行，run_id 保持不变
+```
 
 ---
 

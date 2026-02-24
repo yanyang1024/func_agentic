@@ -7,7 +7,7 @@ from typing import Dict, Optional, Callable, Any
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-from workflow_mock import workflow_service, WorkflowStatus
+from workflow_adapter import getflowinfo
 from session_manager import Session, session_manager
 
 
@@ -31,32 +31,73 @@ class AsyncProcessor:
         threading.Thread(target=run_loop, daemon=True).start()
 
     async def _run_task(self, task_id: str, session_id: str, run_id: str, callback: Optional[Callable]):
-        """运行异步任务"""
+        """运行异步任务 - 轮询工作流状态"""
         try:
-            print(f"[AsyncProcessor] 开始任务: {task_id}, run_id: {run_id}")
-            await asyncio.sleep(2)  # 模拟工作流执行
+            print(f"[AsyncProcessor] 开始监控任务: {task_id}, run_id: {run_id}")
 
-            # 获取工作流结果
-            result = workflow_service.get_workflow_info(run_id)
-            print(f"[AsyncProcessor] 完成任务: {task_id}, 状态: {result['status']}")
+            # 轮询工作流状态，直到完成或中断
+            while True:
+                try:
+                    result = getflowinfo(run_id)
+                    status = result.get('status', '')
 
-            # 更新任务状态
-            with self._lock:
-                if task_id in self._tasks:
-                    self._tasks[task_id]['completed'] = True
-                    self._tasks[task_id]['result'] = result
+                    print(f"[AsyncProcessor] 任务状态: {task_id}, run_id: {run_id}, status: {status}")
 
-            # 执行回调
-            if callback:
-                await callback(session_id, result)
+                    # 如果是最终状态（成功、失败、中断），停止轮询
+                    if status in ['success', 'fail', 'interrupted']:
+                        print(f"[AsyncProcessor] 任务完成: {task_id}, 状态: {status}")
+
+                        # 更新任务状态
+                        with self._lock:
+                            if task_id in self._tasks:
+                                self._tasks[task_id]['completed'] = True
+                                self._tasks[task_id]['result'] = result
+
+                        # 执行回调
+                        if callback:
+                            await callback(session_id, result)
+                        break
+
+                    # 如果是 processing 状态，继续轮询
+                    elif status == 'processing':
+                        # Processing 状态不需要回调，前端通过轮询获取进度
+                        await asyncio.sleep(1)  # 等待1秒后再次查询
+
+                    else:
+                        # 未知状态
+                        print(f"[AsyncProcessor] 未知状态: {status}")
+                        await asyncio.sleep(1)
+
+                except ValueError as e:
+                    # run_id 不存在
+                    print(f"[AsyncProcessor] 任务异常: {task_id}, 错误: {str(e)}")
+                    error_result = {
+                        "runId": run_id,
+                        "status": "fail",
+                        "error": f"工作流不存在: {str(e)}",
+                        "nodes": {},
+                        "steps": [],
+                        "costMs": 0,
+                        "output": None
+                    }
+                    with self._lock:
+                        if task_id in self._tasks:
+                            self._tasks[task_id]['completed'] = True
+                            self._tasks[task_id]['result'] = error_result
+                    if callback:
+                        await callback(session_id, error_result)
+                    break
 
         except Exception as e:
             print(f"[AsyncProcessor] 任务异常: {task_id}, 错误: {str(e)}")
             error_result = {
-                "run_id": run_id,
-                "status": WorkflowStatus.FAIL,
-                "message": f"处理异常: {str(e)}",
-                "visualization_url": None
+                "runId": run_id,
+                "status": "fail",
+                "error": f"处理异常: {str(e)}",
+                "nodes": {},
+                "steps": [],
+                "costMs": 0,
+                "output": None
             }
             with self._lock:
                 if task_id in self._tasks:

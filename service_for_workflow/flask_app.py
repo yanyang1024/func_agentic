@@ -6,7 +6,7 @@ from flask import Flask, render_template, request, jsonify
 from typing import Dict, Any
 import asyncio
 
-from workflow_mock import workflow_service, WorkflowStatus
+from workflow_adapter import runworkflow, getflowinfo, resumeflow
 from session_manager import session_manager, Session
 from async_processor import async_processor
 
@@ -21,7 +21,7 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 
 async def workflow_callback(session_id: str, result: Dict[str, Any]):
     """
-    工作流状态回调 - 处理新的工作流数据结构
+    工作流状态回调 - 处理工作流数据结构
 
     Args:
         session_id: 会话ID
@@ -44,30 +44,9 @@ async def workflow_callback(session_id: str, result: Dict[str, Any]):
 
     # 根据状态添加消息
     if status == "processing":
-        session.waiting_for_input = False
-        # 从节点信息中提取进度
-        nodes = result.get("nodes", {})
-        steps = result.get("steps", [])
-
-        # 计算进度
-        completed_count = sum(1 for node_id in steps if nodes.get(node_id, {}).get("status") == "success")
-        processing_count = sum(1 for node_id in steps if nodes.get(node_id, {}).get("status") == "processing")
-        total_count = len(steps)
-
-        current_step = completed_count + processing_count
-        percentage = int((current_step / total_count) * 100) if total_count > 0 else 0
-
-        # 找到当前正在处理的节点
-        current_node_info = "正在处理工作流..."
-        for node_id in steps:
-            node_info = nodes.get(node_id, {})
-            if node_info.get("status") == "processing":
-                node_type = node_info.get("nodeType", "flow")
-                current_node_info = f"正在执行节点: {node_type} ({current_step}/{total_count})"
-                break
-
-        message = f"{current_node_info} ({percentage}%)"
-        session.add_message("assistant", message)
+        # Processing 状态不添加消息，只更新UI状态
+        # 前端会通过轮询获取进度信息
+        pass
 
     elif status == "interrupted":
         session.waiting_for_input = True
@@ -88,19 +67,8 @@ async def workflow_callback(session_id: str, result: Dict[str, Any]):
         else:
             message = str(output) if output else "工作流执行完成"
 
-        # 检查是否有可视化链接
-        visualization_url = None
-        if isinstance(output, dict):
-            # 检查最后一个节点的输出
-            nodes = result.get("nodes", {})
-            steps = result.get("steps", [])
-            if steps:
-                last_node = nodes.get(steps[-1], {})
-                last_output = last_node.get("output", {})
-                if isinstance(last_output, dict):
-                    visualization_url = last_output.get("chart_url")
-
-        session.add_message("assistant", message, visualization_url)
+        # 直接输出文本，不使用 visualization_url
+        session.add_message("assistant", message)
 
     elif status == "fail":
         session.waiting_for_input = False
@@ -179,8 +147,6 @@ def get_messages():
             'content': msg.content,
             'timestamp': msg.timestamp.isoformat()
         }
-        if msg.visualization_url:
-            message['visualization_url'] = msg.visualization_url
         messages.append(message)
 
     return jsonify({
@@ -206,21 +172,39 @@ def send_message():
     sessions = session_manager.get_all_sessions()
     session = sessions[-1] if sessions else session_manager.create_session()
 
-    # 添加用户消息
-    session.add_message("user", user_message)
-
-    # 判断是新对话还是中断响应
+    # 判断是新对话还是中断恢复（核心逻辑修正）
     if session.waiting_for_input and session.current_run_id:
-        # 中断后恢复：创建新的工作流实例（模拟恢复）
-        run_id = workflow_service.start_workflow(user_message)
+        # 中断恢复：使用 resumeflow，run_id 保持不变
+        session.add_message("user", user_message)
+        resumeflow(user_message, session.current_run_id)
+        run_id = session.current_run_id  # 保持原 run_id
         session.waiting_for_input = False
+        print(f"[Flask] 中断恢复: run_id={run_id}, 输入={user_message}")
     else:
+        # 检查是否有正在运行的工作流
+        if session.current_run_id and not session.waiting_for_input:
+            # 有工作流正在运行，检查状态
+            try:
+                workflow_info = getflowinfo(session.current_run_id)
+                if workflow_info.get('status') == 'processing':
+                    # 工作流正在执行中，提示用户等待
+                    return jsonify({
+                        'success': False,
+                        'error': '当前有工作流正在执行，请等待完成后再发送新消息'
+                    }), 409  # 409 Conflict
+            except Exception:
+                # 工作流不存在或已出错，允许启动新工作流
+                pass
+
+        # 添加用户消息
+        session.add_message("user", user_message)
+
         # 启动新工作流
-        run_id = workflow_service.start_workflow(user_message)
+        run_id = runworkflow(user_message)
+        session.current_run_id = run_id
+        print(f"[Flask] 启动新工作流: run_id={run_id}, 输入={user_message}")
 
-    session.current_run_id = run_id
-
-    # 提交异步任务
+    # 提交异步任务监控
     async_processor.submit_task(
         session_id=session.session_id,
         run_id=run_id,
@@ -248,23 +232,17 @@ def refresh_status():
 
     # 获取最新消息
     messages = []
-    reference_info = None
-
     for msg in session.messages:
         message = {
             'role': msg.role,
             'content': msg.content,
             'timestamp': msg.timestamp.isoformat()
         }
-        if msg.visualization_url:
-            message['visualization_url'] = msg.visualization_url
-            reference_info = msg.visualization_url
         messages.append(message)
 
     return jsonify({
         'success': True,
         'messages': messages,
-        'reference_info': reference_info,
         'session_id': session.session_id,
         'waiting_for_input': session.waiting_for_input,
         'current_run_id': session.current_run_id
@@ -274,7 +252,7 @@ def refresh_status():
 @app.route('/api/workflow/<run_id>/status', methods=['GET'])
 def get_workflow_status(run_id: str):
     """
-    轮询工作流状态 - 返回新的数据结构
+    轮询工作流状态
 
     Args:
         run_id: 工作流运行 ID
@@ -283,7 +261,7 @@ def get_workflow_status(run_id: str):
         工作流状态信息（包含节点详情）
     """
     try:
-        workflow_info = workflow_service.get_workflow_info(run_id)
+        workflow_info = getflowinfo(run_id)
 
         # 直接返回工作流信息，添加 success 标记
         response = {
@@ -313,33 +291,19 @@ def get_workflow_status(run_id: str):
             }
 
         elif status == 'interrupted':
-            # 中断状态
-            response['message'] = workflow_info.get('msg', '工作流被中断')
-            interrupted_node_id = workflow_info.get('lastInterruptedNodeId', '')
-            if interrupted_node_id and interrupted_node_id in nodes:
-                interrupted_node = nodes[interrupted_node_id]
-                response['interrupt_info'] = {
-                    'node_type': interrupted_node.get('nodeType', 'unknown'),
-                    'node_id': interrupted_node_id
-                }
+            # 中断状态 - msg 字段
+            response['message'] = workflow_info.get('msg', '工作流被中断，需要更多信息')
 
         elif status == 'success':
-            # 成功状态 - 提取友好消息
+            # 成功状态 - 从 output 提取消息
             output = workflow_info.get('output', {})
             if isinstance(output, dict):
                 response['message'] = output.get('summary', '工作流执行完成')
-
-                # 检查可视化链接
-                if steps:
-                    last_node = nodes.get(steps[-1], {})
-                    last_output = last_node.get('output', {})
-                    if isinstance(last_output, dict) and 'chart_url' in last_output:
-                        response['visualization_url'] = last_output['chart_url']
             else:
                 response['message'] = str(output) if output else '工作流执行完成'
 
         elif status == 'fail':
-            # 失败状态
+            # 失败状态 - error 字段
             response['message'] = workflow_info.get('error', '工作流执行失败')
 
         return jsonify(response)
@@ -349,60 +313,6 @@ def get_workflow_status(run_id: str):
             'success': False,
             'error': str(e)
         }), 404
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/api/workflow/<run_id>/resume', methods=['POST'])
-def resume_workflow(run_id: str):
-    """
-    恢复中断的工作流 - 创建新的工作流实例
-
-    实际API可能通过提供补充信息来恢复中断的工作流
-    这里我们创建一个新的工作流实例
-
-    Args:
-        run_id: 被中断的工作流运行 ID
-
-    Returns:
-        新的工作流运行 ID
-    """
-    data = request.get_json()
-    user_input = data.get('input', '').strip()
-
-    if not user_input:
-        return jsonify({
-            'success': False,
-            'error': '输入不能为空'
-        }), 400
-
-    try:
-        # 创建新的工作流实例（模拟恢复）
-        new_run_id = workflow_service.start_workflow(user_input)
-
-        # 获取当前会话并更新
-        sessions = session_manager.get_all_sessions()
-        if sessions:
-            session = sessions[-1]
-            session.current_run_id = new_run_id
-            session.waiting_for_input = False
-
-            # 提交异步任务
-            async_processor.submit_task(
-                session_id=session.session_id,
-                run_id=new_run_id,
-                status_callback=workflow_callback
-            )
-
-        return jsonify({
-            'success': True,
-            'new_run_id': new_run_id,
-            'message': '工作流已恢复'
-        })
-
     except Exception as e:
         return jsonify({
             'success': False,

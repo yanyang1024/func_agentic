@@ -13,7 +13,6 @@ class Message:
     role: str  # 'user' 或 'assistant'
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    visualization_url: Optional[str] = None
 
 
 @dataclass
@@ -26,9 +25,9 @@ class Session:
     interrupt_context: Optional[Dict[str, Any]] = None
     created_at: datetime = field(default_factory=datetime.now)
 
-    def add_message(self, role: str, content: str, visualization_url: Optional[str] = None):
+    def add_message(self, role: str, content: str):
         """添加消息"""
-        self.messages.append(Message(role, content, visualization_url=visualization_url))
+        self.messages.append(Message(role, content))
 
 
 class SessionManager:
