@@ -383,6 +383,76 @@
         .workflow-step.completed {
             color: #4caf50;
         }
+
+        .node-details {
+            background: white;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 12px;
+        }
+
+        .node-details-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .node-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .node-item:last-child {
+            border-bottom: none;
+        }
+
+        .node-status-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .node-status-pending {
+            background: #e0e0e0;
+            color: #666;
+        }
+
+        .node-status-processing {
+            background: #2196f3;
+            color: white;
+        }
+
+        .node-status-success {
+            background: #4caf50;
+            color: white;
+        }
+
+        .node-status-interrupted {
+            background: #ff9800;
+            color: white;
+        }
+
+        .node-status-fail {
+            background: #f44336;
+            color: white;
+        }
+
+        .node-type {
+            color: #666;
+            font-size: 11px;
+        }
+
+        .node-cost {
+            margin-left: auto;
+            color: #999;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -449,6 +519,13 @@
                             <span class="workflow-step">Model Inference</span>
                             <span class="workflow-step">Result Generation</span>
                         </div>
+                    </div>
+                </div>
+
+                <div class="info-card" id="nodeDetailsCard" style="display: none;">
+                    <div class="node-details">
+                        <div class="node-details-title">Node Execution Details</div>
+                        <div id="nodeList"></div>
                     </div>
                 </div>
             </div>
@@ -555,35 +632,39 @@
                 const response = await fetch("/api/workflow/" + runId + "/status");
                 const data = await response.json();
 
-                if (!data) {
+                if (!data || !data.success) {
                     return;
                 }
 
                 if (data.status === "processing") {
                     updateProcessingUI(data);
                     updateWorkflowProgress(data);
-                } else if (data.status === "interrupt") {
+                    updateNodeDetails(data);
+                } else if (data.status === "interrupted") {
                     clearInterval(pollingInterval);
                     pollingInterval = null;
                     removeProcessingMessage();
-                    addMessageToUI("assistant", data.message);
-                    updateWorkflowStatus("waiting", "Waiting for more info");
+                    addMessageToUI("assistant", data.message || "工作流被中断，需要更多信息");
+                    updateWorkflowStatus("waiting", "Interrupted");
                     setProcessingState(false);
+                    hideNodeDetails();
                 } else if (data.status === "success") {
                     clearInterval(pollingInterval);
                     pollingInterval = null;
                     removeProcessingMessage();
-                    addMessageToUI("assistant", data.message, data.visualization_url);
+                    addMessageToUI("assistant", data.message || "工作流执行完成", data.visualization_url);
                     updateWorkflowStatus("success", "Completed");
                     updateReferenceInfo(data.visualization_url);
                     setProcessingState(false);
+                    hideNodeDetails();
                 } else if (data.status === "fail") {
                     clearInterval(pollingInterval);
                     pollingInterval = null;
                     removeProcessingMessage();
-                    addMessageToUI("assistant", data.message);
+                    addMessageToUI("assistant", data.message || "工作流执行失败");
                     updateWorkflowStatus("fail", "Failed");
                     setProcessingState(false);
+                    hideNodeDetails();
                 }
 
             } catch (error) {
@@ -631,9 +712,9 @@
                     if (stepElements[index]) {
                         stepElements[index].textContent = node;
 
-                        if (index < data.progress_info.current_step) {
+                        if (index < data.progress_info.current_step - 1) {
                             stepElements[index].className = "workflow-step completed";
-                        } else if (index === data.progress_info.current_step) {
+                        } else if (index === data.progress_info.current_step - 1) {
                             stepElements[index].className = "workflow-step active";
                         } else {
                             stepElements[index].className = "workflow-step";
@@ -641,6 +722,50 @@
                     }
                 });
             } else {
+                card.style.display = "none";
+            }
+        }
+
+        function updateNodeDetails(data) {
+            const card = document.getElementById("nodeDetailsCard");
+            const nodeList = document.getElementById("nodeList");
+
+            if (!card || !nodeList) return;
+
+            if (data.status === "processing" && data.nodes) {
+                card.style.display = "block";
+                nodeList.innerHTML = "";
+
+                const steps = data.steps || [];
+                const nodes = data.nodes || {};
+
+                steps.forEach(function(nodeId, index) {
+                    const node = nodes[nodeId] || {};
+                    const nodeType = node.nodeType || "unknown";
+                    const nodeStatus = node.status || "pending";
+                    const nodeCost = node.costMs || 0;
+
+                    const nodeItem = document.createElement("div");
+                    nodeItem.className = "node-item";
+
+                    // 截取节点ID显示
+                    const shortId = nodeId.substring(0, 12) + "...";
+
+                    nodeItem.innerHTML =
+                        '<span class="node-status-badge node-status-' + nodeStatus + '">' + nodeStatus + "</span>" +
+                        '<span class="node-type">[' + nodeType + "] " + shortId + "</span>" +
+                        '<span class="node-cost">' + nodeCost + "ms</span>';
+
+                    nodeList.appendChild(nodeItem);
+                });
+            } else {
+                card.style.display = "none";
+            }
+        }
+
+        function hideNodeDetails() {
+            const card = document.getElementById("nodeDetailsCard");
+            if (card) {
                 card.style.display = "none";
             }
         }
@@ -716,6 +841,7 @@
                     if (!data.current_run_id) {
                         updateWorkflowStatus("none", "Not Started");
                         hideWorkflowProgress();
+                        hideNodeDetails();
                     }
                 }
             } catch (error) {
@@ -759,6 +885,7 @@
                     updateRunId("Not Started");
                     updateWorkflowStatus("none", "Not Started");
                     hideWorkflowProgress();
+                    hideNodeDetails();
                 }
             } catch (error) {
                 console.error("Clear chat failed:", error);

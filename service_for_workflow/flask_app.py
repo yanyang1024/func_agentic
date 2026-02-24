@@ -20,31 +20,108 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 # ============================================
 
 async def workflow_callback(session_id: str, result: Dict[str, Any]):
-    """工作流状态回调"""
+    """
+    工作流状态回调 - 处理新的工作流数据结构
+
+    Args:
+        session_id: 会话ID
+        result: 工作流查询结果，包含:
+            - runId: str
+            - status: str (processing/interrupted/success/fail)
+            - nodes: Dict[str, NodeInfo]
+            - steps: List[str]
+            - costMs: int
+            - output: Any
+            - (interrupted) msg: str
+            - (interrupted) lastInterruptedNodeId: str
+            - (fail) error: str
+    """
     session = session_manager.get_session(session_id)
     if not session:
         return
 
-    # 根据状态添加消息
-    if result["status"] == WorkflowStatus.PROCESSING:
-        # 处理中状态 - 显示进度信息
+    status = result.get("status", "")
 
+    # 根据状态添加消息
+    if status == "processing":
         session.waiting_for_input = False
-        progress_info = result.get("progress_info", {})
-        message = f"正在处理: {progress_info.get('current_node', '未知步骤')} ({progress_info.get('percentage', 0)}%)"
+        # 从节点信息中提取进度
+        nodes = result.get("nodes", {})
+        steps = result.get("steps", [])
+
+        # 计算进度
+        completed_count = sum(1 for node_id in steps if nodes.get(node_id, {}).get("status") == "success")
+        processing_count = sum(1 for node_id in steps if nodes.get(node_id, {}).get("status") == "processing")
+        total_count = len(steps)
+
+        current_step = completed_count + processing_count
+        percentage = int((current_step / total_count) * 100) if total_count > 0 else 0
+
+        # 找到当前正在处理的节点
+        current_node_info = "正在处理工作流..."
+        for node_id in steps:
+            node_info = nodes.get(node_id, {})
+            if node_info.get("status") == "processing":
+                node_type = node_info.get("nodeType", "flow")
+                current_node_info = f"正在执行节点: {node_type} ({current_step}/{total_count})"
+                break
+
+        message = f"{current_node_info} ({percentage}%)"
         session.add_message("assistant", message)
 
-    elif result["status"] == WorkflowStatus.INTERRUPT:
+    elif status == "interrupted":
         session.waiting_for_input = True
-        session.add_message("assistant", result["message"])
+        # 使用 msg 字段作为中断消息
+        msg = result.get("msg", "工作流被中断，需要更多信息")
+        session.add_message("assistant", msg)
 
-    elif result["status"] == WorkflowStatus.SUCCESS:
+    elif status == "success":
         session.waiting_for_input = False
-        session.add_message("assistant", result["message"], result.get("visualization_url"))
+        # 从 output 字段提取结果
+        output = result.get("output", {})
+        if isinstance(output, dict):
+            message = output.get("summary", "工作流执行完成")
+            # 可以添加更多详细信息
+            details = output.get("details", {})
+            if details:
+                message += f"\n\n详细信息：\n{format_dict_to_text(details)}"
+        else:
+            message = str(output) if output else "工作流执行完成"
 
-    elif result["status"] == WorkflowStatus.FAIL:
+        # 检查是否有可视化链接
+        visualization_url = None
+        if isinstance(output, dict):
+            # 检查最后一个节点的输出
+            nodes = result.get("nodes", {})
+            steps = result.get("steps", [])
+            if steps:
+                last_node = nodes.get(steps[-1], {})
+                last_output = last_node.get("output", {})
+                if isinstance(last_output, dict):
+                    visualization_url = last_output.get("chart_url")
+
+        session.add_message("assistant", message, visualization_url)
+
+    elif status == "fail":
         session.waiting_for_input = False
-        session.add_message("assistant", result["message"])
+        # 使用 error 字段作为失败原因
+        error_msg = result.get("error", "工作流执行失败")
+        session.add_message("assistant", f"❌ {error_msg}")
+
+
+def format_dict_to_text(d: Dict[str, Any], indent: int = 0) -> str:
+    """将字典格式化为文本"""
+    lines = []
+    prefix = "  " * indent
+    for key, value in d.items():
+        if isinstance(value, dict):
+            lines.append(f"{prefix}{key}:")
+            lines.append(format_dict_to_text(value, indent + 1))
+        elif isinstance(value, list):
+            lines.append(f"{prefix}{key}: {', '.join(str(v) for v in value)}")
+        else:
+            lines.append(f"{prefix}{key}: {value}")
+    return "\n".join(lines)
 
 
 # ============================================
@@ -134,8 +211,8 @@ def send_message():
 
     # 判断是新对话还是中断响应
     if session.waiting_for_input and session.current_run_id:
-        # 重启工作流
-        run_id = workflow_service.restart_workflow(user_message, session.current_run_id)
+        # 中断后恢复：创建新的工作流实例（模拟恢复）
+        run_id = workflow_service.start_workflow(user_message)
         session.waiting_for_input = False
     else:
         # 启动新工作流
@@ -197,46 +274,81 @@ def refresh_status():
 @app.route('/api/workflow/<run_id>/status', methods=['GET'])
 def get_workflow_status(run_id: str):
     """
-    轮询工作流状态（返回动态提示）
+    轮询工作流状态 - 返回新的数据结构
 
     Args:
         run_id: 工作流运行 ID
 
     Returns:
-        工作流状态信息
+        工作流状态信息（包含节点详情）
     """
     try:
         workflow_info = workflow_service.get_workflow_info(run_id)
 
-        # 转换状态为字符串
-        status = workflow_info.get("status", "unknown")
-        if isinstance(status, WorkflowStatus):
-            status = status.value
-
+        # 直接返回工作流信息，添加 success 标记
         response = {
             'success': True,
-            'run_id': run_id,
-            'status': status,
-            'message': workflow_info.get('message', '')
+            **workflow_info
         }
 
-        # 根据状态添加额外信息
-        if status == WorkflowStatus.PROCESSING.value:
-            progress_info = workflow_info.get('progress_info', {})
-            response['progress_info'] = progress_info
-            response['current_node'] = progress_info.get('current_node', '未知')
-            response['percentage'] = progress_info.get('percentage', 0)
-            response['total_steps'] = progress_info.get('total_steps', 0)
+        # 为前端添加额外的友好信息
+        status = workflow_info.get('status', '')
+        nodes = workflow_info.get('nodes', {})
+        steps = workflow_info.get('steps', [])
 
-        elif status == WorkflowStatus.INTERRUPT.value:
-            response['interrupt_info'] = workflow_info.get('interrupt_info', {})
-            response['question'] = workflow_info.get('message', '')
+        if status == 'processing':
+            # 计算进度信息
+            completed_count = sum(1 for node_id in steps if nodes.get(node_id, {}).get("status") == "success")
+            processing_count = sum(1 for node_id in steps if nodes.get(node_id, {}).get("status") == "processing")
+            total_count = len(steps)
+            current_step = completed_count + processing_count
+            percentage = int((current_step / total_count) * 100) if total_count > 0 else 0
 
-        elif status == WorkflowStatus.SUCCESS.value:
-            response['visualization_url'] = workflow_info.get('visualization_url')
+            response['progress_info'] = {
+                'current_step': current_step,
+                'total_steps': total_count,
+                'percentage': percentage,
+                'nodes': [nodes.get(node_id, {}).get('nodeType', 'unknown') for node_id in steps],
+                'current_node': nodes.get(steps[current_step - 1], {}).get('nodeType', 'unknown') if current_step > 0 else 'unknown'
+            }
+
+        elif status == 'interrupted':
+            # 中断状态
+            response['message'] = workflow_info.get('msg', '工作流被中断')
+            interrupted_node_id = workflow_info.get('lastInterruptedNodeId', '')
+            if interrupted_node_id and interrupted_node_id in nodes:
+                interrupted_node = nodes[interrupted_node_id]
+                response['interrupt_info'] = {
+                    'node_type': interrupted_node.get('nodeType', 'unknown'),
+                    'node_id': interrupted_node_id
+                }
+
+        elif status == 'success':
+            # 成功状态 - 提取友好消息
+            output = workflow_info.get('output', {})
+            if isinstance(output, dict):
+                response['message'] = output.get('summary', '工作流执行完成')
+
+                # 检查可视化链接
+                if steps:
+                    last_node = nodes.get(steps[-1], {})
+                    last_output = last_node.get('output', {})
+                    if isinstance(last_output, dict) and 'chart_url' in last_output:
+                        response['visualization_url'] = last_output['chart_url']
+            else:
+                response['message'] = str(output) if output else '工作流执行完成'
+
+        elif status == 'fail':
+            # 失败状态
+            response['message'] = workflow_info.get('error', '工作流执行失败')
 
         return jsonify(response)
 
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 404
     except Exception as e:
         return jsonify({
             'success': False,
@@ -247,10 +359,13 @@ def get_workflow_status(run_id: str):
 @app.route('/api/workflow/<run_id>/resume', methods=['POST'])
 def resume_workflow(run_id: str):
     """
-    恢复中断的工作流
+    恢复中断的工作流 - 创建新的工作流实例
+
+    实际API可能通过提供补充信息来恢复中断的工作流
+    这里我们创建一个新的工作流实例
 
     Args:
-        run_id: 工作流运行 ID
+        run_id: 被中断的工作流运行 ID
 
     Returns:
         新的工作流运行 ID
@@ -265,7 +380,8 @@ def resume_workflow(run_id: str):
         }), 400
 
     try:
-        new_run_id = workflow_service.restart_workflow(user_input, run_id)
+        # 创建新的工作流实例（模拟恢复）
+        new_run_id = workflow_service.start_workflow(user_input)
 
         # 获取当前会话并更新
         sessions = session_manager.get_all_sessions()
